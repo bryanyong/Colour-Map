@@ -1,0 +1,334 @@
+//Code for IR filter TCS34625 sensor:
+//Finds average RGB readings over some time interval for two samples
+//then uses these to determine if the two samples are the same or different
+//By looking at 'cube' shaped region around each average in 3D space
+
+
+
+#include <Wire.h>
+
+
+#include <Adafruit_TCS34725.h>
+
+#include "Adafruit_TCS34725.h"
+   
+/* Initialise with default values (int time = 2.4ms, gain = 1x) */
+Adafruit_TCS34725 tcs = Adafruit_TCS34725();
+
+/* Initialise with specific int time and gain values */
+// Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_700MS, TCS34725_GAIN_1X);
+
+
+
+int redPin=9;        //connect LEDs to these pins on Arduino UNO
+int greenPin=10;
+int bluePin=11;
+
+const int numReadings = 50;        //number of samples in each average
+
+int readings_r[numReadings];      // array to store the readings from the sensor for r,g,b
+int readings_g[numReadings]; 
+int readings_b[numReadings];
+
+
+int readIndex = 0;                 // the index of the current reading
+int average_r1 = 0;                // the averages for each of r,g,b for 1st sample 
+int average_g1 = 0;
+int average_b1 = 0;
+int average_r2= 0;                 // the averages for each of r,g,b for 2nd sample
+int average_g2 = 0;
+int average_b2 = 0;
+int averageMin_r; int averageMin_g;  int averageMin_b;                  //variables to hold min and max means 
+int averageMax_r; int averageMax_g; int averageMax_b;
+
+float stdDev_r1=0;                                        //standard deviations for r,g,b for 1st sample   
+float stdDev_g1=0;
+float stdDev_b1=0;        
+float stdDev_r2=0;                                        //standard deviations for r,g,b for 2nd sample 
+float stdDev_g2=0;
+float stdDev_b2=0;                                     
+float stdDevMin_r; float stdDevMin_g; float stdDevMin_b;              //variables to hold min and max std dev's
+float stdDevMax_r; float stdDevMax_g;float stdDevMax_b; 
+
+int counter=0;       //increases by one every time one of the r,g,b components are meaningfully different between the samples
+ 
+
+
+int findAverage(int, int );         //func to find avg
+float findStdDev(int, int, int);    //func to find std dev
+
+
+void setup(void) {
+  Serial.begin(9600);
+  
+  if (tcs.begin()) {
+    Serial.println("Found sensor");
+  } else {
+    Serial.println("No TCS34725 found ... check your connections");
+    while (1);
+  }
+  //initialise arrays to 0
+  for (int thisReading = 0; thisReading < numReadings; thisReading++) {
+    readings_r[thisReading] = 0;
+    readings_g[thisReading] = 0;
+    readings_b[thisReading] = 0;
+  }
+
+ pinMode(9, OUTPUT);    //set LED pins at outputs
+ pinMode(10, OUTPUT);
+ pinMode(11, OUTPUT);
+ 
+  
+}
+
+void loop(void) {
+  uint16_t r, g, b, c, colorTemp, lux;
+
+//Beginning of a test cycle - light up all 3 LEDs together
+
+  digitalWrite(bluePin, LOW);
+  Serial.println("Test cycle begins");
+  digitalWrite(greenPin, HIGH);
+  digitalWrite(redPin, HIGH);
+  digitalWrite(bluePin, HIGH);
+  delay(1000);    
+  digitalWrite(greenPin, LOW);
+  digitalWrite(redPin, LOW);
+  digitalWrite(bluePin, LOW);
+  delay(300);
+  
+
+
+//First Sample 
+
+
+  Serial.println("Place first sample");
+  digitalWrite(greenPin, HIGH);
+  delay(7000);                              //7 sec delay to allow user to place sample in place
+  digitalWrite(greenPin, LOW);
+  delay(1000);
+  Serial.println("Begin recording");
+  digitalWrite(redPin, HIGH);               //red LED to signal to user not to touch sample
+  delay(1000);  
+
+  //record data
+  
+  for (int readIndex = 0; readIndex < numReadings; readIndex++) {
+  
+  tcs.getRawData(&r, &g, &b, &c);
+  colorTemp = tcs.calculateColorTemperature(r, g, b);
+  lux = tcs.calculateLux(r, g, b);
+  readings_r[readIndex]=r;
+  readings_g[readIndex]=g;
+  readings_b[readIndex]=b;
+  
+    }
+
+//calculate avg's and std dev's
+
+average_r1=findAverage(readings_r,numReadings);
+average_g1=findAverage(readings_g,numReadings);
+average_b1=findAverage(readings_b,numReadings);
+stdDev_r1=findStdDev(readings_r,numReadings, average_r1);
+stdDev_g1=findStdDev(readings_g,numReadings, average_g1);
+stdDev_b1=findStdDev(readings_b,numReadings, average_b1);
+
+//print averages and std devs
+      
+  Serial.print("r1 = ");Serial.print(average_r1,DEC);Serial.println("");    
+  Serial.print("g1 = ");Serial.print(average_g1,DEC);Serial.println("");
+  Serial.print("b1 = ");Serial.println(average_b1,DEC);Serial.println("");
+  Serial.print("SD r1 = "); Serial.print(stdDev_r1,4);Serial.println("");
+  Serial.print("SD g1 = "); Serial.print(stdDev_g1,4);Serial.println("");
+  Serial.print("SD b1 = "); Serial.println(stdDev_b1,4);
+  Serial.println("");                                      //leave a line for clarity
+  
+  
+delay(1000);                                                //1 second delay
+digitalWrite(redPin, LOW);
+
+
+//Second sample
+
+  Serial.println("Place second sample");
+  digitalWrite(greenPin, HIGH);
+  delay(7000);
+  digitalWrite(greenPin, LOW);
+  delay(1000);
+  Serial.println("Begin recording");
+  digitalWrite(redPin, HIGH);
+  delay(1000);
+
+  
+  for (int readIndex = 0; readIndex < numReadings; readIndex++) {
+  
+  tcs.getRawData(&r, &g, &b, &c);
+  colorTemp = tcs.calculateColorTemperature(r, g, b);
+  lux = tcs.calculateLux(r, g, b);
+  readings_r[readIndex]=r;
+  //Serial.println(readings_r[readIndex]);
+  readings_g[readIndex]=g;
+  readings_b[readIndex]=b;
+  
+ 
+    }
+
+  
+  average_r2=findAverage(readings_r,numReadings);
+  average_g2=findAverage(readings_g,numReadings);
+  average_b2=findAverage(readings_b,numReadings);
+  stdDev_r2=findStdDev(readings_r,numReadings, average_r2);
+  stdDev_g2=findStdDev(readings_g,numReadings, average_g2);
+  stdDev_b2=findStdDev(readings_b,numReadings, average_b2);
+
+   
+  
+      
+  Serial.print("r2 = ");Serial.print(average_r2,DEC);Serial.println("");
+  Serial.print("g2 = ");Serial.print(average_g2,DEC);Serial.println("");
+  Serial.print("b2 = ");Serial.println(average_b2,DEC);Serial.println("");
+  Serial.print("SD r2 = "); Serial.print(stdDev_r2,4);Serial.println("");
+  Serial.print("SD g2 = "); Serial.print(stdDev_g2,4);Serial.println("");
+  Serial.print("SD b2 = "); Serial.println(stdDev_b2,4);
+  Serial.println("");
+
+  
+ 
+ delay(1000);                                  //1 second delay
+ digitalWrite(redPin, LOW);
+
+//calculate which sample (1 or 2) has greatest average 
+//for each of r,g,b
+
+//order averages for red
+
+if (average_r1>=average_r2){
+    averageMax_r=average_r1;
+    stdDevMax_r=stdDev_r1;
+    averageMin_r=average_r2;
+    stdDevMin_r=stdDev_r2;
+}
+else{ averageMax_r=average_r2;
+       stdDevMax_r=stdDev_r2;
+    averageMin_r=average_r1;
+    stdDevMin_r=stdDev_r1;
+}
+
+// order averages for green
+
+if (average_g1>=average_g2){
+    averageMax_g=average_g1;
+    stdDevMax_g=stdDev_g1;
+    averageMin_g=average_g2;
+    stdDevMin_g=stdDev_g2;
+}
+else{ averageMax_g=average_g2;
+       stdDevMax_g=stdDev_g2;
+    averageMin_g=average_g1;
+    stdDevMin_g=stdDev_g1;
+}
+
+// order averages for blue
+
+if (average_b1>=average_b2){
+    averageMax_b=average_b1;
+    stdDevMax_b=stdDev_b1;
+    averageMin_b=average_b2;
+    stdDevMin_b=stdDev_b2;
+}
+else{ averageMax_b=average_b2;
+       stdDevMax_b=stdDev_b2;
+    averageMin_b=average_b1;
+    stdDevMin_b=stdDev_b1;
+}
+  
+
+//Carry out comparison (95% confidence) in each of r,g,b directions
+
+
+if ((averageMax_r-1.96*stdDevMax_r)> averageMin_r+1.96*stdDevMin_r){
+  counter=counter+1;
+}
+
+if ((averageMax_g-1.96*stdDevMax_g)> averageMin_g+1.96*stdDevMin_g){
+  counter=counter+1;
+}
+
+
+if ((averageMax_b-1.96*stdDevMax_b)> averageMin_b+1.96*stdDevMin_b){
+  counter=counter+1;
+}
+
+if(counter>0){
+  
+  Serial.println("Samples are different");
+  digitalWrite(bluePin, HIGH);    //blue LED on for 4 secs
+  delay(4000);
+  digitalWrite(bluePin, LOW);
+  Serial.println("");    //leave a line
+}
+else{
+  
+   Serial.println("Samples are the same"); 
+   digitalWrite(bluePin, HIGH);             //blue LED flashes
+   delay(300);
+   digitalWrite(bluePin, LOW);
+   delay(300);
+   digitalWrite(bluePin, HIGH);
+   delay(300);
+   digitalWrite(bluePin, LOW);
+   delay(300);
+   digitalWrite(bluePin, HIGH);
+   delay(300);
+   digitalWrite(bluePin, LOW);
+   Serial.println(""); 
+   
+}
+  
+  
+  counter=0;    //reset counter to 0
+
+
+}
+
+
+
+//functions:
+
+ 
+ int findAverage(int readings[], int numReadings){
+  //finds average of values in array readings of size numReadings
+int total =0;
+int average=0;
+for (int readIndex = 0; readIndex < numReadings; readIndex++) {
+  total=total+readings[readIndex];
+}
+  average=total/numReadings;
+  return average;
+}
+
+float findStdDev(int readings[], int numReadings, int average){
+  //finds standard deviation of values in array 'readings' of size numReadings
+  //sets min threshold to be 1.5 in order to incorporate human error
+  
+int meanSubtracted[numReadings];
+int meanSubtractedSquared[numReadings];
+int total=0;
+float stdDev;
+
+ for (int readIndex = 0; readIndex < numReadings; readIndex++) {
+    meanSubtracted[readIndex]=readings[readIndex] - average;
+    meanSubtractedSquared[readIndex]= meanSubtracted[readIndex]* meanSubtracted[readIndex];
+    total=total+meanSubtractedSquared[readIndex];
+ }
+
+    stdDev=sqrt(total/(numReadings+1));
+
+    stdDev=stdDev+1.5; //human error added on
+    
+    return stdDev;
+
+  
+   
+}
+ 
